@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <errno.h>
+
 
 #define CMDLINE_MAX 512
 
@@ -19,7 +19,6 @@ int parse (struct command *cmd) {
     char buffer[CMDLINE_MAX];
 
     char *temp = malloc(CMDLINE_MAX);
-    char *temp2 = malloc(CMDLINE_MAX);
 
     /* Get command line */
     fgets(buffer, CMDLINE_MAX, stdin);
@@ -82,6 +81,7 @@ int num(struct command *cmd){
         return 0;
     }
 }
+
 int main(void) {
 
     while (1) {
