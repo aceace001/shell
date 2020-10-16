@@ -82,7 +82,6 @@ int num(struct command *cmd){
   }
 }
 
-//UNTESTED
 int main(void) {
 
   while (1) {
