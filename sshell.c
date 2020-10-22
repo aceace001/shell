@@ -14,7 +14,7 @@
 
 struct command {
     char *input;  // full user command input
-    char *args[ARGS_MAX + 1];   //args[0] = command for execvp
+    char *args[ARGS_MAX];   //args[0] = command for execvp
     int count;
 };
 
@@ -38,17 +38,16 @@ struct command readParse(char* cmd){
     if (nl)
         *nl = '\0';
 
-
+    command.count = 0;
     strcpy(cmdCopy, cmd);
     char* token = strtok(cmdCopy, "\n");
     command.input = token;
-
     token = strtok(cmd," ");
     command.args[0] = token;
-    command.count = 1;
+
     while(token != NULL){
         token = strtok(NULL, " ");
-        command.args[command.count] = token;
+        command.args[command.count + 1] = token;
         command.count++;
     }
     return command;
