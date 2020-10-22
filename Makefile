@@ -1,6 +1,10 @@
-sshell : sshell.c
-        gcc -Wall -Wextra -Werror -o sshell sshell.c
+sshell: sshell.o
+        gcc -Wall -Wextra -Werror -o sshell sshell.o
         
-.PHONY : clean
-clean :
-        -rm -f sshell
+sshell.o:
+        gcc -Wall -Wextra -Werror -c -o sshell.o sshell.c
+        
+.PHONY: clean
+
+clean:
+        -rm -f sshell sshell.o
