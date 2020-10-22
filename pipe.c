@@ -10,104 +10,116 @@
 
 #define CMDLINE_MAX 512
 #define ARGS_MAX 16
-#define PIPE_MAX 4
+#define TOKEN_MAX 32
 
 struct command {
   char *input;  // full user command input
-  char *args[ARGS_MAX+1];   //args[0] = command for execvp
+  char *args[ARGS_MAX];   //args[0] = command for execvp
   int count;
-};
-
-struct pipeCommands {
-  char *input;
-  struct command commands[PIPE_MAX];
-  int count;
+  int numPipes;
 };
 
 struct command readParse(char *cmd) {
   struct command command;
+  char *nl;
+  char *token;
   char *cmdCopy = malloc(CMDLINE_MAX * sizeof(char));
 
-  strcpy(cmdCopy, cmd);
-  char *token = strtok(cmdCopy, "\n");
-  command.input = token;
+  /* Get command line */
+  fgets(cmd, CMDLINE_MAX, stdin);
 
+  /* Print command line if stdin is not provided by terminal */
+  if (!isatty(STDIN_FILENO)) {
+    printf("%s", cmd);
+    fflush(stdout);
+  }
+
+  /* Remove trailing newline from command line */
+  nl = strchr(cmd, '\n');
+  if (nl)
+    *nl = '\0';
+
+  command.numPipes = 0;
+  for (int i = 0; i < strlen(cmd); ++i) {
+    if (cmd[i] == '|') {
+      command.numPipes++;
+    }
+  }
+
+  command.count = 0;
+  strcpy(cmdCopy, cmd);
+  token = strtok(cmdCopy, "\n");
+  command.input = token;
   token = strtok(cmd, " ");
   command.args[0] = token;
-  command.count = 1;
+
   while (token != NULL) {
     token = strtok(NULL, " ");
-    command.args[command.count] = token;
+    command.args[command.count + 1] = token;
     command.count++;
   }
   return command;
 }
 
-struct pipeCommands readPipeParse(char *cmd) {
-  struct pipeCommands command;
-  char *cmdCopy = malloc(CMDLINE_MAX * sizeof(char));
-  int pipeCount = 0;
+struct command parsePipe(struct command command) {
+  struct command pipeCommand;
 
-  strcpy(cmdCopy, cmd);
-  char *token = strtok(cmdCopy, "\n");
-  command.input = token;
+  pipeCommand.count = 0;
+  pipeCommand.input = command.input;
+  pipeCommand.numPipes = command.numPipes;
 
-  token = strtok(cmd, "|");
-  command.commands[0].input = token;
-  command.count = 1;
+  char *token = strtok(command.input, "|");
+  pipeCommand.args[pipeCommand.count] = token;
+  pipeCommand.count++;
   while (token != NULL) {
-    token = strtok(NULL, " ");
-    command.commands[command.count].input = token;
-    command.count++;
+    token = strtok(NULL, "|");
+    pipeCommand.args[pipeCommand.count] = token;
+    pipeCommand.count++;
   }
+  return pipeCommand;
+}
 
-  for (int i = 0; i < command.count; ++i) {
-    struct command parsedCommand = readParse(command.commands[command.count].input);
-    command.commands[command.count] = parsedCommand;
-  }
-
-  while (pipeCount < command.count) {
-    if (pipeCount == command.count - 1) {
-      /*
-       * handle redirection here, only possible at end of pipe
-       */
-      command.commands[command.count].args[command.commands[command.count].count] = NULL;
-      int error = execvp(command.commands[command.count].args[0], command.commands[command.count].args);
-
-      if (error == -1) {
-        fprintf(stderr, "Error: Command not found\n");
-      }
-
-    } else {
+void pipeHandler(struct command pipeCommand) {
+  int maxCommand = pipeCommand.numPipes;
+  int currCommand = 0;
+  int status;
+  while (currCommand < maxCommand) {
+    // last command, handle redirection
+    if (currCommand == maxCommand) {
+      struct command command;
+      command = readParse(pipeCommand.args[currCommand]);
+      command.args[command.count++] = NULL;
+      execvp(command.args[0], command.args);
+      fprintf(stderr, "+ completed '%s' : [%d]\n", command.input, status);
+    }
+    if (currCommand < maxCommand) {
       int fd[2];
       pid_t pid;
-      int status;
 
       if (pipe(fd) < 0) {
         perror("pipe");
       }
+
       pid = fork();
       if (pid > 0) {
         close(fd[0]);
         dup2(fd[1], STDOUT_FILENO);
         close(fd[1]);
-        command.commands[command.count].args[command.commands[command.count].count] = NULL;
-        int error = execvp(command.commands[command.count].args[0], command.commands[command.count].args);
 
-        if (error == -1) {
-          fprintf(stderr, "Error: Command not found\n");
-        }
+        struct command command;
+        command = readParse(pipeCommand.args[currCommand]);
+        command.args[command.count++] = NULL;
+        execvp(command.args[0], command.args);
         waitpid(pid, &status, 0);
+        fprintf(stderr, "+ completed '%s' : [%d]\n", command.input, status);
       }
-      else if (pid == 0){
-        if (pipeCount != command.count - 1) {
+      else if(pid == 0) {
+        if (currCommand < maxCommand) {
           dup2(fd[0], STDIN_FILENO);
+          close(fd[0]);
         }
         close(fd[1]);
-        pipeCount++;
-      }
-      else {
-        perror("fork");
+        currCommand++;
       }
     }
   }
@@ -134,38 +146,49 @@ void cd(struct command command) {
   }
 }
 
+int command_error(struct command command) {
+  int count = 0;
+  while (command.args[count] != NULL) {
+    if (!strcmp(command.args[count], ">")) {
+      if (command.args[count + 1] == NULL) {
+        return 1;
+      }
+      int out_redirection_file = open(command.args[count + 1], O_RDWR | O_CREAT | O_APPEND, 0644);
+      close(out_redirection_file);
+      if (out_redirection_file == -1) {
+        return 2;
+      }
+    }
+    count++;
+  }
+  return 0;
+}
 int main(void) {
   char *cmd = malloc(CMDLINE_MAX * sizeof(char));
   struct command command;
-  struct pipeCommands pipeCommand;
-  char *nl;
+  struct command pipeCommand;
   while (1) {
     pid_t pid;
     /* Print prompt */
     printf("sshell@ucd$ ");
     fflush(stdout);
 
-    /* Get command line */
-    fgets(cmd, CMDLINE_MAX, stdin);
+    command = readParse(cmd);
 
-    /* Print command line if stdin is not provided by terminal */
-    if (!isatty(STDIN_FILENO)) {
-      printf("%s", cmd);
-      fflush(stdout);
+    int error_num = command_error(command);
+
+    if (command.count++ == 17) {
+      fprintf(stderr, "Too Many Arguments\n");
+      continue;
     }
-
-    /* Remove trailing newline from command line */
-    nl = strchr(cmd, '\n');
-    if (nl)
-      *nl = '\0';
-
-    //command = readParse(cmd);
-    //command.args[command.count++] = NULL;
-
-    pipeCommand = readPipeParse(cmd);
+    command.args[command.count++] = NULL;
 
     /* Builtin command */
-    if (!strcmp(command.input, "exit")) {
+    if (error_num == 1) {
+      fprintf(stderr, "Error: no output file\n");
+    } else if (error_num == 2) {
+      fprintf(stderr, "Error: cannot open output file\n");
+    } else if (!strcmp(command.input, "exit")) {
       fprintf(stderr, "Bye...\n");
       fprintf(stderr, "+ completed '%s' [0]\n", command.input);
       break;
@@ -178,34 +201,43 @@ int main(void) {
       int status;
       if (pid == 0) {
         int count = 0;
-        int out_redirection_file = 0;
-        while (command.args[count] != NULL) {
-          if (!strcmp(command.args[count], ">")) {
-            out_redirection_file = open(command.args[count + 1], O_RDWR | O_CREAT | O_TRUNC, 0644);
-            dup2(out_redirection_file, STDOUT_FILENO);
-            close(out_redirection_file);
-            command.args[count] = NULL;
-            break;
+        int out_redirection_file;
+        if (command.numPipes != 0) {
+          pipeCommand = parsePipe(command);
+          pipeHandler(pipeCommand);
+        } else {
+          while (command.args[count] != NULL) {
+            if (!strcmp(command.args[count], ">")) {
+              out_redirection_file = open(command.args[count + 1], O_RDWR | O_CREAT | O_TRUNC, 0644);
+              dup2(out_redirection_file, STDOUT_FILENO);
+              close(out_redirection_file);
+              command.args[count] = NULL;
+              break;
 
+            } else if (!strcmp(command.args[count], ">>")) {
+              out_redirection_file = open(command.args[count + 1], O_RDWR | O_CREAT | O_APPEND, 0644);
+              dup2(out_redirection_file, STDOUT_FILENO);
+              close(out_redirection_file);
+              command.args[count] = NULL;
+              break;
+            }
+            count++;
           }
-          count++;
-        }
 
-        int error = execvp(command.args[0], command.args);
+          int error = execvp(command.args[0], command.args);
 
-        if (error == -1) {
-          fprintf(stderr, "Error: Command not found\n");
+          if (error == -1) {
+            fprintf(stderr, "Error: Command not found\n");
+          }
+          exit(1);
         }
-        exit(1);
       } else {
         if (waitpid(pid, &status, 0) < 0) {
           break;
         }
         fprintf(stderr, "+ completed '%s' [%d]\n", command.input, status);
-
       }
     }
-
   }
 
   return EXIT_SUCCESS;
