@@ -14,7 +14,7 @@
 
 struct command {
   char *input;  // full user command input
-  char *args[ARGS_MAX];   //args[0] = command for execvp
+  char *args[ARGS_MAX+1];   //args[0] = command for execvp
   int count;
 };
 
