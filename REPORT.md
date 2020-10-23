@@ -33,17 +33,17 @@ working directory.
 * exit: in 'main()' function, if the command is 'exit', we exit with status 0.
 
 ### Regular commands
-* After checking builtin command and errors from redirection, we implement the ability for the shell to execute 
-simple regular command such as "ls", "date", or "echo hello" by forking the 
-process to create parent and child process. The parent wait until child process 
-is finished by using 'waitpid()' function and print completion. The child 
-executes regular command by using 'execvp()' function so that it will 
-automatically search progtams in the '$PATH'. 
+* After checking builtin command and errors from redirection, we implement the 
+ability for the shell to execute simple regular commands such as "ls", "date", 
+or "echo hello" by forking the process to create parent and child process. 
+The parent wait until child process is finished by using 'waitpid()' function 
+and print completion. The child executes regular command by using 'execvp()' 
+function so that it will automatically search progtams in the '$PATH'. 
 
 ## **Phase 4-6**
 From phase 4 to 6, we made changes to the implementation we had for phase 0-3 to
 perform out redirection, piping, error management, and one extra feature "out 
-redirection append"
+redirection append".
 
 ### Out redirection
 * In the 'main()' function, we perform output redirection inside child process. 
@@ -61,7 +61,20 @@ then write to the file specified with file control option "O_APPEND" instead of
 basically unchanged. 
 
 ### Piping
-
+* Piping is handled by the "pipeHandler()" function inside the child process and    
+it is executed everytime the value 'numOfPipes' is greater than 0. The user input   
+command is then parsed by the number of '|' in the command and the resulting 
+'pipeCommand' and the maximum number of commands which equals to the number of
+'|' in the command + 1 is passed to the "pipeHandler()". Inside, it first checks
+which commands we are on: if we are on the last command, then we check for output
+redirections since it can only happens at this stage and then execute the command;
+for all previous commands, both pipe() and fork() are called. Inside the parent
+process, we close the read file descriptor and hook the write file descriptor to
+STDOUT, where as in the child process we close write fd and hook the read fd to STDIN.
+Inside the parent we also execute the current command and the child increment the 
+current command counter. One current issue however is that when there are more
+than 1 pipe happening, the prompt gets printed before the final command is finished
+and printed to STDOUT. We suspect this problem arises from waitpid() usage.
 
 ### Error management
 * parsing errors: 
