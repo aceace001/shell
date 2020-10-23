@@ -33,7 +33,7 @@ working directory.
 * exit: in 'main()' function, if the command is 'exit', we exit with status 0.
 
 ### Regular commands
-* After checking builtin command and errors from redirection, we implement 
+* After checking builtin command and errors from redirection, we implement the ability for the shell to execute 
 simple regular command such as "ls", "date", or "echo hello" by forking the 
 process to create parent and child process. The parent wait until child process 
 is finished by using 'waitpid()' function and print completion. The child 
