@@ -2,15 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <stdbool.h>
 #include <fcntl.h>
-#include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
 
 #define CMDLINE_MAX 512
 #define ARGS_MAX 16
-
 
 struct command {
   char *input;  // full user command input
@@ -54,13 +50,13 @@ struct command readParse(char *cmd) {
   return command;
 }
 
-void pipeParse(struct command *pipeCommand) {
-  char *token = strtok(pipeCommand->input, "|");
+void pipeParse(struct command *pipeCommand, char *string) {
+  char *token = strtok(pipeCommand->input, string);
   pipeCommand->count = 0;
   pipeCommand->args[pipeCommand->count] = token;
   pipeCommand->count++;
   while (token != NULL) {
-    token = strtok(NULL, "|");
+    token = strtok(NULL, string);
     pipeCommand->args[pipeCommand->count] = token;
     pipeCommand->count++;
   }
@@ -85,15 +81,16 @@ void pipeHandler(char **args, int maxCmd) {
       struct command cmd;
       cmd.input = malloc(strlen(args[currCmd]) * sizeof(char));
       strcpy(cmd.input, args[currCmd]);
-      while (cmd.args[count] != NULL) {
+      pipeParse(&cmd, " ");
+      while ((&cmd)->args[count] != NULL) {
         if (!strcmp(cmd.args[count], ">")) {
-          out_redirection_file = open(cmd.args[count + 1], O_RDWR | O_CREAT | O_TRUNC, 0644);
+          out_redirection_file = open((&cmd)->args[count + 1], O_RDWR | O_CREAT | O_TRUNC, 0644);
           dup2(out_redirection_file, STDOUT_FILENO);
           close(out_redirection_file);
           cmd.args[count] = NULL;
           break;
         } else if (!strcmp(cmd.args[count], ">>")) {
-          out_redirection_file = open(cmd.args[count + 1], O_RDWR | O_CREAT | O_APPEND, 0644);
+          out_redirection_file = open((&cmd)->args[count + 1], O_RDWR | O_CREAT | O_APPEND, 0644);
           dup2(out_redirection_file, STDOUT_FILENO);
           close(out_redirection_file);
           cmd.args[count] = NULL;
@@ -101,16 +98,7 @@ void pipeHandler(char **args, int maxCmd) {
         }
         count++;
       }
-      char *token = strtok(cmd.input, " ");
-      cmd.count = 0;
-      cmd.args[cmd.count] = token;
-      cmd.count++;
-      while (token != NULL) {
-        token = strtok(NULL, " ");
-        cmd.args[cmd.count] = token;
-        cmd.count++;
-      }
-      execvp(cmd.args[0], cmd.args);
+      execvp((&cmd)->args[0], (&cmd)->args);
       perror("execvp error");
 
     }
@@ -139,17 +127,8 @@ void pipeHandler(char **args, int maxCmd) {
 
         cmd.input = malloc(strlen(args[currCmd]) * sizeof(char));
         strcpy(cmd.input, args[currCmd]);
-        char *token = strtok(cmd.input, " ");
-        cmd.count = 0;
-        cmd.args[cmd.count] = token;
-        cmd.count++;
-        while (token != NULL) {
-          token = strtok(NULL, " ");
-          cmd.args[cmd.count] = token;
-          cmd.count++;
-        }
-
-        execvp(cmd.args[0], cmd.args);
+        pipeParse(&cmd, " ");
+        execvp((&cmd)->args[0], (&cmd)->args);
         perror("execvp");
       } else {
         perror("fork");
@@ -243,8 +222,9 @@ int main(void) {
         int out_redirection_file;
         if (numPipes > 0) {
           numPipes = numPipes + 1;
+          pipeCommand.input = malloc(CMDLINE_MAX * sizeof(char));
           strcpy(pipeCommand.input, command.input);
-          pipeParse(&pipeCommand);
+          pipeParse(&pipeCommand, "|");
           pipeHandler(pipeCommand.args, numPipes);
         } else {
           while (command.args[count] != NULL) {
@@ -272,11 +252,11 @@ int main(void) {
           }
           exit(1);
         }
-      } else {
-        if (waitpid(-1, &status, 0) < 0) {
-          break;
-        }
+      } else if (pid > 0){
+        waitpid(-1, &status, 0);
         fprintf(stderr, "+ completed '%s' [%d]\n", command.input, status);
+      } else {
+        perror("fork");
       }
     }
   }
