@@ -52,6 +52,7 @@ struct command readParse(char *cmd)
     return command;
 }
 
+// custom parse the command for pipe commands usage
 void pipeParse(struct command *pipeCommand, char *string)
 {
     char *token = strtok(pipeCommand->input, string);
@@ -66,6 +67,7 @@ void pipeParse(struct command *pipeCommand, char *string)
     }
 }
 
+// count number of pipes in a command
 int pipeCount(char *cmd)
 {
     int count = 0;
@@ -83,23 +85,29 @@ void pipeHandler(char **args, int maxCmd)
     int currCmd = 0;
     int count = 0;
     int out_redirection_file;
-
+    
+    // go through the pipe commands from left to right
     while (currCmd < maxCmd) {
+        
+        // if current command is the last pipe command then
+        // check for output redirection       
         if (currCmd == maxCmd - 1) {
             struct command cmd;
 
             cmd.input = malloc(strlen(args[currCmd]) * sizeof(char));
             strcpy(cmd.input, args[currCmd]);
             pipeParse(&cmd, " ");
-            while ((&cmd)->args[count] != NULL) {
+            
+            //output redirection 
+            while ((cmd.args[count] != NULL) {
                 if (!strcmp(cmd.args[count], ">")) {
-                    out_redirection_file = open((&cmd)->args[count + 1], O_RDWR | O_CREAT | O_TRUNC, 0644);
+                    out_redirection_file = open(cmd.args[count + 1], O_RDWR | O_CREAT | O_TRUNC, 0644);
                     dup2(out_redirection_file, STDOUT_FILENO);
                     close(out_redirection_file);
                     cmd.args[count] = NULL;
                     break;
                 } else if (!strcmp(cmd.args[count], ">>")) {
-                    out_redirection_file = open((&cmd)->args[count + 1], O_RDWR | O_CREAT | O_APPEND, 0644);
+                    out_redirection_file = open(cmd.args[count + 1], O_RDWR | O_CREAT | O_APPEND, 0644);
                     dup2(out_redirection_file, STDOUT_FILENO);
                     close(out_redirection_file);
                     cmd.args[count] = NULL;
@@ -107,10 +115,12 @@ void pipeHandler(char **args, int maxCmd)
                 }
                 count++;
             }
-            execvp((&cmd)->args[0], (&cmd)->args);
+            execvp(cmd.args[0], cmd.args);
             perror("execvp error");
 
         }
+        // if current command is not the last
+        // pipe and fork
         if (currCmd < maxCmd) {
             int fd[2];
             pid_t pid;
@@ -120,6 +130,7 @@ void pipeHandler(char **args, int maxCmd)
             }
 
             pid = fork();
+            // if child, increment command counter
             if (pid == 0) {
                 if (currCmd < maxCmd) {
                     dup2(fd[0], STDIN_FILENO);
@@ -127,7 +138,9 @@ void pipeHandler(char **args, int maxCmd)
                 }
                 close(fd[1]);
                 currCmd++;
-            } else if (pid > 0) {
+            }
+            // if parent, execute command
+            else if (pid > 0) {
                 close(fd[0]);
                 dup2(fd[1], STDOUT_FILENO);
                 close(fd[1]);
@@ -139,7 +152,8 @@ void pipeHandler(char **args, int maxCmd)
                 pipeParse(&cmd, " ");
                 execvp((&cmd)->args[0], (&cmd)->args);
                 perror("execvp");
-            } else {
+            } 
+            else {
                 perror("fork");
                 exit(1);
             }
