@@ -99,7 +99,7 @@ void pipeHandler(char **args, int maxCmd)
             pipeParse(&cmd, " ");
             
             //output redirection 
-            while ((cmd.args[count] != NULL) {
+            while (cmd.args[count] != NULL) {
                 if (!strcmp(cmd.args[count], ">")) {
                     out_redirection_file = open(cmd.args[count + 1], O_RDWR | O_CREAT | O_TRUNC, 0644);
                     dup2(out_redirection_file, STDOUT_FILENO);
