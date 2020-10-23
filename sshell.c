@@ -52,7 +52,7 @@ struct command readParse(char *cmd)
     return command;
 }
 
-// custom parse the command for pipe commands usage
+/* custom parse the command for pipe commands usage */
 void pipeParse(struct command *pipeCommand, char *string)
 {
     char *token = strtok(pipeCommand->input, string);
@@ -67,7 +67,7 @@ void pipeParse(struct command *pipeCommand, char *string)
     }
 }
 
-// count number of pipes in a command
+/* count number of pipes in a command */
 int pipeCount(char *cmd)
 {
     int count = 0;
@@ -89,8 +89,8 @@ void pipeHandler(char **args, int maxCmd)
     // go through the pipe commands from left to right
     while (currCmd < maxCmd) {
         
-        // if current command is the last pipe command then
-        // check for output redirection       
+        /* if current command is the last pipe command 
+        then check for output redirection and execute */     
         if (currCmd == maxCmd - 1) {
             struct command cmd;
 
@@ -119,8 +119,8 @@ void pipeHandler(char **args, int maxCmd)
             perror("execvp error");
 
         }
-        // if current command is not the last
-        // pipe and fork
+        /* if current command is not the last
+         then pipe fd and fork the process */
         if (currCmd < maxCmd) {
             int fd[2];
             pid_t pid;
