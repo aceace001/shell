@@ -10,13 +10,12 @@
 
 #define CMDLINE_MAX 512
 #define ARGS_MAX 16
-#define TOKEN_MAX 32
+
 
 struct command {
   char *input;  // full user command input
   char *args[ARGS_MAX];   //args[0] = command for execvp
   int count;
-  int numPipes;
 };
 
 struct command readParse(char *cmd) {
@@ -39,13 +38,6 @@ struct command readParse(char *cmd) {
   if (nl)
     *nl = '\0';
 
-  command.numPipes = 0;
-  for (int i = 0; i < strlen(cmd); ++i) {
-    if (cmd[i] == '|') {
-      command.numPipes++;
-    }
-  }
-
   command.count = 0;
   strcpy(cmdCopy, cmd);
   token = strtok(cmdCopy, "\n");
@@ -58,41 +50,71 @@ struct command readParse(char *cmd) {
     command.args[command.count + 1] = token;
     command.count++;
   }
+
   return command;
 }
 
-struct command parsePipe(struct command command) {
-  struct command pipeCommand;
-
-  pipeCommand.count = 0;
-  pipeCommand.input = command.input;
-  pipeCommand.numPipes = command.numPipes;
-
-  char *token = strtok(command.input, "|");
-  pipeCommand.args[pipeCommand.count] = token;
-  pipeCommand.count++;
+void pipeParse(struct command *pipeCommand) {
+  char *token = strtok(pipeCommand->input, "|");
+  pipeCommand->count = 0;
+  pipeCommand->args[pipeCommand->count] = token;
+  pipeCommand->count++;
   while (token != NULL) {
     token = strtok(NULL, "|");
-    pipeCommand.args[pipeCommand.count] = token;
-    pipeCommand.count++;
+    pipeCommand->args[pipeCommand->count] = token;
+    pipeCommand->count++;
   }
-  return pipeCommand;
 }
 
-void pipeHandler(struct command pipeCommand) {
-  int maxCommand = pipeCommand.numPipes;
-  int currCommand = 0;
-  int status;
-  while (currCommand < maxCommand) {
-    // last command, handle redirection
-    if (currCommand == maxCommand) {
-      struct command command;
-      command = readParse(pipeCommand.args[currCommand]);
-      command.args[command.count++] = NULL;
-      execvp(command.args[0], command.args);
-      fprintf(stderr, "+ completed '%s' : [%d]\n", command.input, status);
+int pipeCount(char *cmd) {
+  int count = 0;
+  for (int i = 0; i < strlen(cmd); ++i) {
+    if (cmd[i] == '|') {
+      count++;
     }
-    if (currCommand < maxCommand) {
+  }
+  return count;
+}
+
+void pipeHandler(char **args, int maxCmd) {
+  int currCmd = 0;
+  int count = 0;
+  int out_redirection_file;
+  while (currCmd < maxCmd) {
+    if (currCmd == maxCmd - 1) {
+      struct command cmd;
+      cmd.input = malloc(strlen(args[currCmd]) * sizeof(char));
+      strcpy(cmd.input, args[currCmd]);
+      while (cmd.args[count] != NULL) {
+        if (!strcmp(cmd.args[count], ">")) {
+          out_redirection_file = open(cmd.args[count + 1], O_RDWR | O_CREAT | O_TRUNC, 0644);
+          dup2(out_redirection_file, STDOUT_FILENO);
+          close(out_redirection_file);
+          cmd.args[count] = NULL;
+          break;
+        } else if (!strcmp(cmd.args[count], ">>")) {
+          out_redirection_file = open(cmd.args[count + 1], O_RDWR | O_CREAT | O_APPEND, 0644);
+          dup2(out_redirection_file, STDOUT_FILENO);
+          close(out_redirection_file);
+          cmd.args[count] = NULL;
+          break;
+        }
+        count++;
+      }
+      char *token = strtok(cmd.input, " ");
+      cmd.count = 0;
+      cmd.args[cmd.count] = token;
+      cmd.count++;
+      while (token != NULL) {
+        token = strtok(NULL, " ");
+        cmd.args[cmd.count] = token;
+        cmd.count++;
+      }
+      execvp(cmd.args[0], cmd.args);
+      perror("execvp error");
+
+    }
+    if (currCmd < maxCmd) {
       int fd[2];
       pid_t pid;
 
@@ -101,25 +123,37 @@ void pipeHandler(struct command pipeCommand) {
       }
 
       pid = fork();
-      if (pid > 0) {
-        close(fd[0]);
-        dup2(fd[1], STDOUT_FILENO);
-        close(fd[1]);
-
-        struct command command;
-        command = readParse(pipeCommand.args[currCommand]);
-        command.args[command.count++] = NULL;
-        execvp(command.args[0], command.args);
-        waitpid(pid, &status, 0);
-        fprintf(stderr, "+ completed '%s' : [%d]\n", command.input, status);
-      }
-      else if(pid == 0) {
-        if (currCommand < maxCommand) {
+      if (pid == 0) {
+        if (currCmd < maxCmd) {
           dup2(fd[0], STDIN_FILENO);
           close(fd[0]);
         }
         close(fd[1]);
-        currCommand++;
+        currCmd++;
+      } else if (pid > 0) {
+        close(fd[0]);
+        dup2(fd[1], STDOUT_FILENO);
+        close(fd[1]);
+
+        struct command cmd;
+
+        cmd.input = malloc(strlen(args[currCmd]) * sizeof(char));
+        strcpy(cmd.input, args[currCmd]);
+        char *token = strtok(cmd.input, " ");
+        cmd.count = 0;
+        cmd.args[cmd.count] = token;
+        cmd.count++;
+        while (token != NULL) {
+          token = strtok(NULL, " ");
+          cmd.args[cmd.count] = token;
+          cmd.count++;
+        }
+
+        execvp(cmd.args[0], cmd.args);
+        perror("execvp");
+      } else {
+        perror("fork");
+        exit(1);
       }
     }
   }
@@ -163,10 +197,15 @@ int command_error(struct command command) {
   }
   return 0;
 }
+
 int main(void) {
   char *cmd = malloc(CMDLINE_MAX * sizeof(char));
   struct command command;
   struct command pipeCommand;
+  int cmdError;
+  int numPipes;
+  int execError;
+
   while (1) {
     pid_t pid;
     /* Print prompt */
@@ -174,19 +213,19 @@ int main(void) {
     fflush(stdout);
 
     command = readParse(cmd);
+    cmdError = command_error(command);
+    numPipes = pipeCount(command.input);
 
-    int error_num = command_error(command);
-
-    if (command.count++ == 17) {
+    if (command.count == ARGS_MAX) {
       fprintf(stderr, "Too Many Arguments\n");
-      continue;
+      fflush(stdout);
+      break;
     }
-    command.args[command.count++] = NULL;
 
     /* Builtin command */
-    if (error_num == 1) {
+    if (cmdError == 1) {
       fprintf(stderr, "Error: no output file\n");
-    } else if (error_num == 2) {
+    } else if (cmdError == 2) {
       fprintf(stderr, "Error: cannot open output file\n");
     } else if (!strcmp(command.input, "exit")) {
       fprintf(stderr, "Bye...\n");
@@ -202,9 +241,11 @@ int main(void) {
       if (pid == 0) {
         int count = 0;
         int out_redirection_file;
-        if (command.numPipes != 0) {
-          pipeCommand = parsePipe(command);
-          pipeHandler(pipeCommand);
+        if (numPipes > 0) {
+          numPipes = numPipes + 1;
+          strcpy(pipeCommand.input, command.input);
+          pipeParse(&pipeCommand);
+          pipeHandler(pipeCommand.args, numPipes);
         } else {
           while (command.args[count] != NULL) {
             if (!strcmp(command.args[count], ">")) {
@@ -224,21 +265,20 @@ int main(void) {
             count++;
           }
 
-          int error = execvp(command.args[0], command.args);
+          execError = execvp(command.args[0], command.args);
 
-          if (error == -1) {
+          if (execError == -1) {
             fprintf(stderr, "Error: Command not found\n");
           }
           exit(1);
         }
       } else {
-        if (waitpid(pid, &status, 0) < 0) {
+        if (waitpid(-1, &status, 0) < 0) {
           break;
         }
         fprintf(stderr, "+ completed '%s' [%d]\n", command.input, status);
       }
     }
   }
-
   return EXIT_SUCCESS;
 }
